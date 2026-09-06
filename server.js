@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
 
-const VERSION = '0.9';
+const VERSION = '0.10';
 const PORT = process.env.PORT || 8787;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TIR_LOW = Number(process.env.TIR_LOW || 70);
@@ -34,8 +34,16 @@ const mock = {
   timeline: {
     glucose: mockGlucose,
     events: [
-      { t: mockNow - 105 * 60000, type: 'carbs', value: 18, unit: 'g', label: '18 g' },
-      { t: mockNow - 100 * 60000, type: 'bolus', value: 1.2, unit: 'U', label: '1.2 U' }
+      {
+        id: 'demo-carbs', t: mockNow - 105 * 60000, type: 'carbs', value: 18, unit: 'g', label: '18 g',
+        eventType: 'Carb Correction', carbs: 18, insulin: null, absorptionDisplay: '3 h', durationDisplay: null,
+        enteredBy: 'loop://iPhone', notes: 'Exemple de démonstration', source: 'Nightscout treatment'
+      },
+      {
+        id: 'demo-bolus', t: mockNow - 100 * 60000, type: 'bolus', value: 1.2, unit: 'U', label: '1.2 U',
+        eventType: 'Correction Bolus', carbs: null, insulin: 1.2, absorptionDisplay: null, durationDisplay: null,
+        enteredBy: 'loop://iPhone', notes: null, source: 'Nightscout treatment'
+      }
     ],
     basal: [
       { t: mockNow - 12 * 3600000, rate: 0.6 },
@@ -49,7 +57,11 @@ const mock = {
 };
 
 function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff'
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -57,6 +69,12 @@ function numberOrNull(value) {
   if (value === '' || value === undefined || value === null) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function cleanText(value, max = 240) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim().replace(/\s+/g, ' ');
+  return text ? text.slice(0, max) : null;
 }
 
 function dateMs(value) {
@@ -155,7 +173,11 @@ function extractPrediction(loop) {
 }
 
 async function fetchResponse(url, options = {}) {
-  return fetch(url, { method: 'GET', cache: 'no-store', headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', ...(options.headers || {}) }, signal: AbortSignal.timeout(12000) });
+  return fetch(url, {
+    method: 'GET', cache: 'no-store',
+    headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', ...(options.headers || {}) },
+    signal: AbortSignal.timeout(12000)
+  });
 }
 
 async function readJsonOrThrow(response, label) {
@@ -184,7 +206,10 @@ function buildV3Url(base, collection, params = {}) {
 }
 
 async function fetchV3Collection(base, jwt, collection, params) {
-  const body = await readJsonOrThrow(await fetchResponse(buildV3Url(base, collection, params), { headers: { Authorization: `Bearer ${jwt}` } }), `Nightscout API v3/${collection}`);
+  const body = await readJsonOrThrow(
+    await fetchResponse(buildV3Url(base, collection, params), { headers: { Authorization: `Bearer ${jwt}` } }),
+    `Nightscout API v3/${collection}`
+  );
   if (Array.isArray(body)) return body;
   if (Array.isArray(body?.result)) return body.result;
   return body?.result ?? body;
@@ -228,7 +253,9 @@ async function fetchNightscoutCollections(base, token) {
       const entriesUrl = withReadableToken(new URL(`/api/v1/entries/sgv.json?count=${HISTORY_MAX_ENTRIES}`, base).toString(), token);
       const statusUrl = withReadableToken(new URL('/api/v1/devicestatus.json?count=600', base).toString(), token);
       const treatmentsUrl = withReadableToken(new URL('/api/v1/treatments.json?count=1800', base).toString(), token);
-      const [entries, devicestatus, treatments] = await Promise.all([fetchV1Json(entriesUrl), fetchV1Json(statusUrl), fetchV1Json(treatmentsUrl).catch(() => [])]);
+      const [entries, devicestatus, treatments] = await Promise.all([
+        fetchV1Json(entriesUrl), fetchV1Json(statusUrl), fetchV1Json(treatmentsUrl).catch(() => [])
+      ]);
       return { entries, devicestatus, treatments, authStrategy: 'v1-token-query' };
     } catch (v1Error) {
       throw new Error(`Échec auth v3 (${v3Error.message}) ; fallback v1 (${v1Error.message})`);
@@ -238,19 +265,33 @@ async function fetchNightscoutCollections(base, token) {
 
 function calculateRange(entries) {
   const cutoff = Date.now() - HISTORY_DAYS * 86400000;
-  const valid = entries.map(e => ({ t: recordDateMs(e), value: numberOrNull(e?.sgv) })).filter(x => x.t !== null && x.t >= cutoff && x.value !== null && x.value >= 20 && x.value <= 600).sort((a, b) => a.t - b.t);
+  const valid = entries
+    .map(e => ({ t: recordDateMs(e), value: numberOrNull(e?.sgv) }))
+    .filter(x => x.t !== null && x.t >= cutoff && x.value !== null && x.value >= 20 && x.value <= 600)
+    .sort((a, b) => a.t - b.t);
   if (valid.length < 3) return { inRange: null, low: null, high: null, sampleCount: valid.length, coverageHours: 0, label: 'Pas assez de données' };
   let low = 0, high = 0, inRange = 0;
   valid.forEach(x => { if (x.value < TIR_LOW) low++; else if (x.value > TIR_HIGH) high++; else inRange++; });
   const n = valid.length;
   const coverageHours = Math.max(0, (valid.at(-1).t - valid[0].t) / 3600000);
   const label = coverageHours >= 144 ? '7 derniers jours' : coverageHours >= 24 ? `${Math.round(coverageHours / 24)} j de données` : `${Math.max(1, Math.round(coverageHours))} h de données`;
-  return { inRange: Math.round(inRange * 1000 / n) / 10, low: Math.round(low * 1000 / n) / 10, high: Math.round(high * 1000 / n) / 10, sampleCount: n, coverageHours: Math.round(coverageHours * 10) / 10, label };
+  return {
+    inRange: Math.round(inRange * 1000 / n) / 10,
+    low: Math.round(low * 1000 / n) / 10,
+    high: Math.round(high * 1000 / n) / 10,
+    sampleCount: n,
+    coverageHours: Math.round(coverageHours * 10) / 10,
+    label
+  };
 }
 
 function buildChart(entries, hours = TIMELINE_HOURS) {
   const cutoff = Date.now() - hours * 3600000;
-  return entries.map(e => ({ t: recordDateMs(e), value: numberOrNull(e?.sgv) })).filter(x => x.t !== null && x.t >= cutoff && x.value !== null && x.value >= 20 && x.value <= 600).sort((a, b) => a.t - b.t).slice(-TIMELINE_MAX_POINTS);
+  return entries
+    .map(e => ({ t: recordDateMs(e), value: numberOrNull(e?.sgv) }))
+    .filter(x => x.t !== null && x.t >= cutoff && x.value !== null && x.value >= 20 && x.value <= 600)
+    .sort((a, b) => a.t - b.t)
+    .slice(-TIMELINE_MAX_POINTS);
 }
 
 function treatmentCarbs(t) {
@@ -258,7 +299,7 @@ function treatmentCarbs(t) {
 }
 
 function treatmentInsulin(t) {
-  return numberOrNull(t?.insulin ?? t?.insulinDelivered ?? t?.bolus);
+  return numberOrNull(t?.insulin ?? t?.insulinDelivered ?? t?.bolus ?? t?.amount);
 }
 
 function treatmentBasalRate(t) {
@@ -269,17 +310,80 @@ function treatmentDuration(t) {
   return numberOrNull(t?.duration ?? t?.durationInMinutes ?? t?.duration_mins);
 }
 
+function eventTypeOf(t, fallback) {
+  return cleanText(t?.eventType ?? t?.event_type ?? t?.type ?? t?.reason, 100) || fallback;
+}
+
+function enteredByOf(t) {
+  return cleanText(t?.enteredBy ?? t?.entered_by ?? t?.device ?? t?.source ?? t?.origin, 120);
+}
+
+function notesOf(t) {
+  return cleanText(t?.notes ?? t?.note ?? t?.reason, 240);
+}
+
+function absorptionDisplayOf(t) {
+  const raw = numberOrNull(
+    t?.absorptionTime ?? t?.absorption_time ?? t?.absorptionTimeHours ??
+    t?.absorptionTimeMinutes ?? t?.absorptionTimeInMinutes ?? t?.absorption
+  );
+  if (raw === null || raw <= 0) return null;
+  const hours = raw > 24 ? raw / 60 : raw;
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  return `${Math.round(hours * 10) / 10} h`;
+}
+
+function durationDisplayOf(t) {
+  const minutes = treatmentDuration(t);
+  if (minutes === null || minutes <= 0) return null;
+  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60} h`;
+  return `${Math.round(minutes)} min`;
+}
+
+function baseEventMeta(t, at, eventType) {
+  return {
+    id: cleanText(t?._id ?? t?.identifier ?? t?.id, 80) || `${at}-${eventType}`,
+    t: at,
+    eventType,
+    enteredBy: enteredByOf(t),
+    notes: notesOf(t),
+    absorptionDisplay: absorptionDisplayOf(t),
+    durationDisplay: durationDisplayOf(t),
+    createdAt: cleanText(t?.created_at ?? t?.dateString ?? t?.timestamp, 80),
+    source: 'Nightscout treatment'
+  };
+}
+
 function buildTimeline(entries, treatments, devicestatus) {
   const cutoff = Date.now() - TIMELINE_HOURS * 3600000;
   const glucose = buildChart(entries, TIMELINE_HOURS);
   const events = [];
+
   for (const t of treatments || []) {
     const at = eventTimestamp(t);
     if (!at || at < cutoff) continue;
     const carbs = treatmentCarbs(t);
     const insulin = treatmentInsulin(t);
-    if (carbs !== null && carbs > 0 && carbs < 500) events.push({ t: at, type: 'carbs', value: Math.round(carbs * 10) / 10, unit: 'g', label: `${Math.round(carbs * 10) / 10} g` });
-    if (insulin !== null && insulin > 0 && insulin < 50) events.push({ t: at, type: 'bolus', value: Math.round(insulin * 100) / 100, unit: 'U', label: `${Math.round(insulin * 100) / 100} U` });
+
+    if (carbs !== null && carbs > 0 && carbs < 500) {
+      const value = Math.round(carbs * 10) / 10;
+      events.push({
+        ...baseEventMeta(t, at, eventTypeOf(t, 'Carb Correction')),
+        type: 'carbs', value, unit: 'g', label: `${value} g`, carbs: value,
+        insulin: insulin !== null && insulin > 0 ? Math.round(insulin * 100) / 100 : null
+      });
+    }
+
+    if (insulin !== null && insulin > 0 && insulin < 50) {
+      const value = Math.round(insulin * 100) / 100;
+      events.push({
+        ...baseEventMeta(t, at, eventTypeOf(t, 'Bolus')),
+        type: 'bolus', value, unit: 'U', label: `${value} U`, insulin: value,
+        carbs: carbs !== null && carbs > 0 ? Math.round(carbs * 10) / 10 : null,
+        programmedInsulin: numberOrNull(t?.programmed ?? t?.programmedInsulin ?? t?.insulinProgrammed),
+        deliveredInsulin: numberOrNull(t?.delivered ?? t?.deliveredInsulin ?? t?.insulinDelivered)
+      });
+    }
   }
   events.sort((a, b) => a.t - b.t);
 
@@ -287,9 +391,15 @@ function buildTimeline(entries, treatments, devicestatus) {
   for (const r of devicestatus || []) {
     const at = recordDateMs(r);
     if (!at || at < cutoff - 45 * 60000) continue;
-    const hit = firstNumberInRecords([r], ['pump.basal.rate', 'pump.basal.absolute', 'pump.basal', 'loop.enacted.tempBasal.rate', 'loop.enacted.rate', 'loop.recommended.tempBasal.rate', 'loop.recommended.rate', 'loop.basal.rate', 'basal.rate'], n => n >= 0 && n <= 30);
+    const hit = firstNumberInRecords([r], [
+      'pump.basal.rate', 'pump.basal.absolute', 'pump.basal',
+      'loop.enacted.tempBasal.rate', 'loop.enacted.rate',
+      'loop.recommended.tempBasal.rate', 'loop.recommended.rate',
+      'loop.basal.rate', 'basal.rate'
+    ], n => n >= 0 && n <= 30);
     if (hit.value !== null) basalCandidates.push({ t: at, rate: Math.round(hit.value * 1000) / 1000, source: 'devicestatus' });
   }
+
   for (const t of treatments || []) {
     const at = eventTimestamp(t);
     if (!at || at < cutoff - 45 * 60000) continue;
@@ -299,6 +409,7 @@ function buildTimeline(entries, treatments, devicestatus) {
       basalCandidates.push({ t: at, rate: Math.round(rate * 1000) / 1000, durationMin: treatmentDuration(t), source: 'treatment' });
     }
   }
+
   basalCandidates.sort((a, b) => a.t - b.t);
   const basal = [];
   for (const p of basalCandidates) {
@@ -306,15 +417,18 @@ function buildTimeline(entries, treatments, devicestatus) {
     if (!prev || Math.abs(prev.rate - p.rate) > 0.0005 || p.t - prev.t > 45 * 60000) basal.push(p);
     else if (p.t > prev.t) prev.t = p.t;
   }
+
   return { glucose, events, basal: basal.slice(-320), hours: TIMELINE_HOURS };
 }
 
 function extractLoopAndDeviceData(devicestatus, treatments) {
-  const records = [...(Array.isArray(devicestatus) ? devicestatus : [])].sort((a, b) => (recordDateMs(b) || 0) - (recordDateMs(a) || 0));
+  const records = [...(Array.isArray(devicestatus) ? devicestatus : [])]
+    .sort((a, b) => (recordDateMs(b) || 0) - (recordDateMs(a) || 0));
   const loopRecord = latestRecordWith(records, 'loop');
   const loop = loopRecord?.loop || {};
   const loopAge = minsAgo(loop?.timestamp ?? loopRecord?.created_at ?? loopRecord?.date);
   let loopMode = 'Actif', modeDetail = 'Mode Closed/Open non exposé par ce payload';
+
   for (const p of ['closedLoop', 'isClosedLoop', 'closed', 'settings.closedLoop']) {
     const value = getPath(loop, p);
     if (typeof value === 'boolean') { loopMode = value ? 'Closed' : 'Open'; modeDetail = `Détecté via loop.${p}`; break; }
@@ -338,9 +452,12 @@ function extractLoopAndDeviceData(devicestatus, treatments) {
     return duration !== null ? Date.now() <= at + (duration + 2) * 60000 : Date.now() - at <= 35 * 60000;
   });
   const activeRate = activeTemp ? treatmentBasalRate(activeTemp) : null;
+
   return {
     loop: { mode: loopMode, modeDetail, lastLoopMinutes: loopAge, lastLoopAt: recordDateMs(loopRecord), status: loopAge === null ? 'unknown' : loopAge <= 15 ? 'fresh' : 'stale', prediction: extractPrediction(loop) },
-    iob: iob.value, cob: cob.value, basal: activeRate ?? basalHit.value, basalSource: activeRate !== null ? 'treatment temp basal actif' : basalHit.path ? `devicestatus:${basalHit.path}` : null,
+    iob: iob.value, cob: cob.value,
+    basal: activeRate ?? basalHit.value,
+    basalSource: activeRate !== null ? 'treatment temp basal actif' : basalHit.path ? `devicestatus:${basalHit.path}` : null,
     pumpBattery: battery.value, reservoir: reservoir.value,
     fieldSources: { iob: iob.path, cob: cob.path, basal: activeRate !== null ? 'treatment temp basal actif' : basalHit.path, pumpBattery: battery.path, reservoir: reservoir.path }
   };
@@ -350,14 +467,17 @@ async function nightscoutSnapshot() {
   const base = process.env.NIGHTSCOUT_URL?.trim();
   const token = process.env.NIGHTSCOUT_TOKEN?.trim();
   if (!base) return null;
+
   const { entries, devicestatus, treatments, authStrategy } = await fetchNightscoutCollections(base, token);
   if (!Array.isArray(entries) || !entries.length) throw new Error('Nightscout ne renvoie aucune entrée CGM.');
+
   const sortedEntries = [...entries].sort((a, b) => (recordDateMs(b) || 0) - (recordDateMs(a) || 0));
   const latest = sortedEntries[0], previous = sortedEntries[1];
   const [trend, trendLabel] = directionInfo(latest?.direction);
   const glucose = numberOrNull(latest?.sgv), previousGlucose = numberOrNull(previous?.sgv);
   const delta = glucose !== null && previousGlucose !== null ? glucose - previousGlucose : null;
   const glucoseAge = minsAgo(latest?.date ?? latest?.dateString), stale = glucoseAge !== null && glucoseAge > 12;
+
   const treatmentList = Array.isArray(treatments) ? treatments : [];
   const deviceData = extractLoopAndDeviceData(devicestatus, treatmentList);
   const lastBolus = findLatestTreatment(treatmentList, t => { const n = treatmentInsulin(t); return n !== null && n > 0; });
@@ -368,7 +488,9 @@ async function nightscoutSnapshot() {
   const sensorEstimatedEndMs = sensorStartMs ? sensorStartMs + SENSOR_WEAR_HOURS * 3600000 : null;
   const podEstimatedEndMs = podStartMs ? podStartMs + POD_NOMINAL_HOURS * 3600000 : null;
   const podExpiresInHours = podEstimatedEndMs ? (podEstimatedEndMs - Date.now()) / 3600000 : null;
-  const range = calculateRange(sortedEntries), chart = buildChart(sortedEntries), timeline = buildTimeline(sortedEntries, treatmentList, devicestatus);
+  const range = calculateRange(sortedEntries);
+  const chart = buildChart(sortedEntries);
+  const timeline = buildTimeline(sortedEntries, treatmentList, devicestatus);
 
   const systemAlerts = [];
   if (stale) systemAlerts.push({ severity: 'warning', text: `Données CGM anciennes : dernière mesure il y a ${glucoseAge} min.` });
@@ -384,12 +506,36 @@ async function nightscoutSnapshot() {
   if (range.inRange !== null && range.sampleCount >= 12) aiAdvice.push(`Sur ${range.label}, ${range.inRange} % des mesures disponibles sont dans la plage affichée.`);
 
   return {
-    generatedAt: new Date().toISOString(), source: 'nightscout-live', connection: { authStrategy, readOnly: true, writesExposed: false },
-    glucose: { value: glucose, unit: 'mg/dL', trend, trendLabel, minutesAgo: glucoseAge, delta }, loop: deviceData.loop,
-    insulin: { iob: deviceData.iob, cob: deviceData.cob, basal: deviceData.basal, basalSource: deviceData.basalSource, lastBolus: lastBolus ? treatmentInsulin(lastBolus) : null, lastBolusTime: lastBolus && eventTimestamp(lastBolus) ? new Date(eventTimestamp(lastBolus)).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : null },
-    devices: { podAgeHours: podAgeHours !== null ? Math.round(podAgeHours * 10) / 10 : null, podExpiresInHours: podExpiresInHours !== null ? Math.round(podExpiresInHours * 10) / 10 : null, podEstimated: Boolean(podStartMs), sensorAgeHours: sensorAgeHours !== null ? Math.round(sensorAgeHours * 10) / 10 : null, sensorExpiresAt: sensorEstimatedEndMs ? fmtDateFr(sensorEstimatedEndMs) : null, sensorEstimated: Boolean(sensorStartMs), dexcom: stale ? 'Données possiblement obsolètes' : 'Données reçues via Nightscout', reservoir: deviceData.reservoir, pumpBattery: deviceData.pumpBattery },
+    generatedAt: new Date().toISOString(),
+    source: 'nightscout-live',
+    connection: { authStrategy, readOnly: true, writesExposed: false },
+    glucose: { value: glucose, unit: 'mg/dL', trend, trendLabel, minutesAgo: glucoseAge, delta },
+    loop: deviceData.loop,
+    insulin: {
+      iob: deviceData.iob, cob: deviceData.cob, basal: deviceData.basal, basalSource: deviceData.basalSource,
+      lastBolus: lastBolus ? treatmentInsulin(lastBolus) : null,
+      lastBolusTime: lastBolus && eventTimestamp(lastBolus) ? new Date(eventTimestamp(lastBolus)).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : null
+    },
+    devices: {
+      podAgeHours: podAgeHours !== null ? Math.round(podAgeHours * 10) / 10 : null,
+      podExpiresInHours: podExpiresInHours !== null ? Math.round(podExpiresInHours * 10) / 10 : null,
+      podEstimated: Boolean(podStartMs),
+      sensorAgeHours: sensorAgeHours !== null ? Math.round(sensorAgeHours * 10) / 10 : null,
+      sensorExpiresAt: sensorEstimatedEndMs ? fmtDateFr(sensorEstimatedEndMs) : null,
+      sensorEstimated: Boolean(sensorStartMs),
+      dexcom: stale ? 'Données possiblement obsolètes' : 'Données reçues via Nightscout',
+      reservoir: deviceData.reservoir,
+      pumpBattery: deviceData.pumpBattery
+    },
     range, chart, timeline,
-    diagnostics: { fieldSources: deviceData.fieldSources, devicestatusCount: Array.isArray(devicestatus) ? devicestatus.length : 0, treatmentsCount: treatmentList.length, entriesCount: sortedEntries.length, timelineEvents: timeline.events.length, timelineBasalPoints: timeline.basal.length },
+    diagnostics: {
+      fieldSources: deviceData.fieldSources,
+      devicestatusCount: Array.isArray(devicestatus) ? devicestatus.length : 0,
+      treatmentsCount: treatmentList.length,
+      entriesCount: sortedEntries.length,
+      timelineEvents: timeline.events.length,
+      timelineBasalPoints: timeline.basal.length
+    },
     systemAlerts, aiAdvice
   };
 }
@@ -426,17 +572,30 @@ function serveStatic(req, res) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname.startsWith('/api/') && req.method !== 'GET') return json(res, 405, { error: 'Read-only API: writes are disabled by design.' });
+
   if (url.pathname === '/api/live') {
     if (!process.env.NIGHTSCOUT_URL?.trim()) return json(res, 200, { ...mock, generatedAt: new Date().toISOString() });
     try { return json(res, 200, await nightscoutSnapshot()); }
-    catch (error) { console.error('[Nightscout]', error.message); return json(res, 503, unavailablePayload(error)); }
+    catch (error) {
+      console.error('[Nightscout]', error.message);
+      return json(res, 503, unavailablePayload(error));
+    }
   }
+
   if (url.pathname === '/api/health') return json(res, 200, {
-    ok: true, version: VERSION, mode: process.env.NIGHTSCOUT_URL ? 'live' : 'demo',
-    nightscoutConfigured: Boolean(process.env.NIGHTSCOUT_URL), tokenConfigured: Boolean(process.env.NIGHTSCOUT_TOKEN),
+    ok: true,
+    version: VERSION,
+    mode: process.env.NIGHTSCOUT_URL ? 'live' : 'demo',
+    nightscoutConfigured: Boolean(process.env.NIGHTSCOUT_URL),
+    tokenConfigured: Boolean(process.env.NIGHTSCOUT_TOKEN),
     authStrategy: 'Nightscout subject token → temporary JWT (API v3), with v1 fallback',
-    historyTargetDays: HISTORY_DAYS, timelineHours: TIMELINE_HOURS, readOnly: true, writesExposed: false
+    historyTargetDays: HISTORY_DAYS,
+    timelineHours: TIMELINE_HOURS,
+    richEvents: true,
+    readOnly: true,
+    writesExposed: false
   });
+
   serveStatic(req, res);
 });
 
@@ -445,7 +604,7 @@ server.listen(PORT, () => {
   if (process.env.NIGHTSCOUT_URL) {
     console.log('LIVE MODE: Nightscout bridge enabled (read-only).');
     console.log(process.env.NIGHTSCOUT_TOKEN ? 'Readable access token configured.' : 'No token configured.');
-    console.log('v0.9: 24h timeline + instant client-side range selection.');
+    console.log('v0.10: rich Nightscout treatment events + detailed tooltips.');
     console.log('Demo fallback is DISABLED in live mode.');
   } else console.log('DEMO MODE: no NIGHTSCOUT_URL configured.');
 });
