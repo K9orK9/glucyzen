@@ -1,6 +1,22 @@
-# GlucyZen v0.5
+# GlucyZen v0.6 LAB
 
-Dashboard local **lecture seule** pour agréger les données Nightscout envoyées par Loop (Dexcom ONE+ + Omnipod DASH).
+Dashboard local pour agréger les données Nightscout envoyées par Loop (Dexcom ONE+ + Omnipod DASH), avec **assistant conseil** et **Mode labo**.
+
+## v0.6 LAB
+
+Cette version ajoute :
+
+- une analyse locale enrichie des données LIVE ;
+- des observations sur la fraîcheur des données, la tendance, l'IOB visible, le temps dans la plage et les rappels matériel ;
+- un bouton `Analyser maintenant` ;
+- un Mode labo permettant de tester l'UX d'un bolus, d'une pause, d'une cible temporaire et d'un rappel ;
+- un journal local des simulations.
+
+### Limite volontaire
+
+Les contrôles du Mode labo sont **100 % simulés dans le navigateur**. Ils n'effectuent aucun appel d'écriture vers Nightscout, Loop, Dexcom ou Omnipod.
+
+L'assistant est pour l'instant une **couche de synthèse locale déterministe**, pas encore un LLM externe. Cela permet de tester le produit sans envoyer de données médicales vers un tiers. Il reste strictement descriptif : aucune recommandation de dose et aucune décision thérapeutique.
 
 ## Lancement en 1 clic
 
@@ -23,8 +39,6 @@ Double-cliquer simplement sur :
 
 `GlucyZen.cmd`
 
-GlucyZen déchiffre localement le token, démarre le serveur et ouvre automatiquement `http://localhost:8787`.
-
 ### Changer Nightscout / le token
 
 Double-cliquer sur :
@@ -43,17 +57,16 @@ Double-cliquer sur :
 
 Le script télécharge la dernière branche `main`, remplace les fichiers applicatifs et **préserve intégralement le dossier `data/`**. Il n'est plus nécessaire de télécharger un nouveau ZIP ni de ressaisir le token à chaque version.
 
-Un fichier local `data/repo.json` peut éventuellement surcharger le dépôt/branche pour un fork ou des tests. Ce fichier reste local et n'est jamais poussé sur GitHub.
-
 ## Sécurité
 
-- API locale uniquement en GET.
-- Toute écriture `/api/*` est rejetée avec HTTP 405.
-- Token Nightscout attendu : rôle `readable`.
-- L'IA reste **conseil uniquement**.
-- Aucune route de bolus, suspension, profil, cible, override ou commande pompe n'existe dans GlucyZen.
-- En mode LIVE, aucune donnée de démonstration ne remplace silencieusement une panne Nightscout.
-- `data/` est ignoré par Git : aucune configuration Nightscout locale n'est publiée dans le dépôt.
+- flux Nightscout réel en lecture seule ;
+- toute écriture `/api/*` est rejetée avec HTTP 405 ;
+- token Nightscout attendu : rôle `readable` ;
+- l'assistant reste **conseil uniquement** ;
+- le Mode labo ne fait que des simulations locales ;
+- aucune route de bolus, suspension, profil, cible, override ou commande pompe n'existe dans GlucyZen ;
+- en mode LIVE, aucune donnée de démonstration ne remplace silencieusement une panne Nightscout ;
+- `data/` est ignoré par Git.
 
 ## Endpoints
 
