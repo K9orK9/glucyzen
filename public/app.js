@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const fmt = (v, suffix='') => (v === null || v === undefined ? '—' : `${typeof v === 'number' ? Math.round(v * 100) / 100 : v}${suffix}`);
-const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const esc = (value) => String(value ?? '').replace(/[&<>'\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
 
 function renderChart(points){
   const svg = $('chart');
@@ -45,7 +45,7 @@ function render(data){
   $('loopAge').textContent=loop.lastLoopMinutes==null?'—':`il y a ${loop.lastLoopMinutes} min`;
   $('loopDetail').textContent=loop.modeDetail || '—';
   if(loop.prediction?.points?.length){
-    $('prediction').textContent=`Min ${loop.prediction.min} · fin ${loop.prediction.end} mg/dL`;
+    $('prediction').textContent=`Min ${Math.round(loop.prediction.min)} · fin ${Math.round(loop.prediction.end)} mg/dL`;
   }else $('prediction').textContent='Non exposée dans les données reçues';
 
   const insulin=data.insulin||{};
@@ -78,7 +78,7 @@ function render(data){
 
   const source=data.source||'mock';
   $('sourceLabel').textContent=source==='nightscout-live'?'LIVE · Nightscout':source==='nightscout-error'?'LIVE · ERREUR':'Mode démo';
-  $('readOnlyBadge').textContent=data.connection?.readOnly===true?'🔒 Lecture seule':'Démo';
+  $('readOnlyBadge').textContent=data.connection?.readOnly===true?'🔒 Flux réel lecture seule':'Démo';
   document.body.dataset.source=source;
 
   let globalText='Données à jour', globalClass='big-ok';
@@ -87,9 +87,10 @@ function render(data){
   else if(g.value!=null&&g.value<70){globalText='Sous la plage affichée';globalClass='big-status warn';}
   else if(g.value!=null&&g.value>180){globalText='Au-dessus de la plage affichée';globalClass='big-status warn';}
   $('globalState').textContent=globalText;$('globalState').className=globalClass;
-  $('globalDetail').textContent=source==='nightscout-live'?'Nightscout connecté · aucune écriture':'Vérifie la source de données';
+  $('globalDetail').textContent=source==='nightscout-live'?'Nightscout connecté · aucune écriture réelle':'Vérifie la source de données';
 
   renderChart(data.chart||[]);
+  window.dispatchEvent(new CustomEvent('glucyzen:data',{detail:data}));
 }
 
 async function load(){
