@@ -9,23 +9,23 @@
 <body>
   <div class="shell">
     <aside class="sidebar">
-      <div class="brand"><div class="brandmark">G</div><div><strong>GlucyZen</strong><span>Loop + Dexcom ONE+</span></div></div>
+      <button class="brand brand-button" data-route="dashboard" aria-label="Tableau de bord"><div class="brandmark">G</div><div><strong>GlucyZen</strong><span>Loop + Dexcom ONE+</span></div></button>
       <nav>
-        <button class="nav active">⌂ <span>Tableau de bord</span></button>
-        <button class="nav">◌ <span>Glycémie</span></button>
-        <button class="nav">↻ <span>Loop</span></button>
-        <button class="nav">◷ <span>Historique</span></button>
-        <button class="nav">▥ <span>Rapports</span></button>
-        <button class="nav">✦ <span>Assistant IA</span></button>
-        <button class="nav">🧪 <span>Mode labo</span></button>
-        <button class="nav">⚙ <span>Paramètres</span></button>
+        <button class="nav active" data-route="dashboard">⌂ <span>Tableau de bord</span></button>
+        <button class="nav" data-route="glycemie">◌ <span>Glycémie</span></button>
+        <button class="nav" data-route="loop">↻ <span>Loop</span></button>
+        <button class="nav" data-route="historique">◷ <span>Historique</span></button>
+        <button class="nav" data-route="rapports">▥ <span>Rapports</span></button>
+        <button class="nav" data-route="assistant">✦ <span>Assistant IA</span></button>
+        <button class="nav" data-route="labo">🧪 <span>Mode labo</span></button>
+        <button class="nav" data-route="parametres">⚙ <span>Paramètres</span></button>
       </nav>
       <div class="guardrail"><b>Mode labo = simulation</b><span>Les données réelles restent en lecture seule. Aucune commande n’est envoyée à Loop, Pod ou Dexcom.</span></div>
     </aside>
 
     <main>
       <header>
-        <div><h1>Dashboard Glycémie & Loop</h1><p>Vue unifiée LIVE + laboratoire local pour tester l’interface sans agir sur les dispositifs.</p></div>
+        <div><h1 id="pageTitle">Dashboard Glycémie & Loop</h1><p id="pageSubtitle">Vue unifiée LIVE + laboratoire local pour tester l’interface sans agir sur les dispositifs.</p></div>
         <div class="header-badges">
           <div class="top-status"><span class="dot"></span><span id="sourceLabel">Chargement…</span><span id="lastRefresh">—</span></div>
           <div id="readOnlyBadge" class="readonly-badge">🔒 Flux réel lecture seule</div>
@@ -33,81 +33,141 @@
         </div>
       </header>
 
-      <section class="hero-grid">
-        <article class="card glucose-card">
-          <div class="card-title"><span>💧 Glycémie (Dexcom ONE+)</span><span class="pill neutral">Plage affichée 70–180</span></div>
-          <div class="glucose-row"><strong id="glucoseValue">—</strong><span class="unit">mg/dL</span><span id="trendArrow" class="trend">—</span><span id="trendLabel" class="pill success">—</span></div>
-          <div class="glucose-meta"><span>Dernière donnée : <b id="glucoseAge">—</b></span><span>Δ 5 min : <b id="delta">—</b></span></div>
-          <svg id="chart" viewBox="0 0 760 220" role="img" aria-label="Courbe de glycémie des six dernières heures"></svg>
-          <div class="range-selector"><button class="active">6 h LIVE</button></div>
-        </article>
+      <section class="page-view active" data-view="dashboard">
+        <section class="hero-grid">
+          <article class="card glucose-card">
+            <div class="card-title"><span>💧 Glycémie (Dexcom ONE+)</span><span class="pill neutral">Plage affichée 70–180</span></div>
+            <div class="glucose-row"><strong id="glucoseValue">—</strong><span class="unit">mg/dL</span><span id="trendArrow" class="trend">—</span><span id="trendLabel" class="pill success">—</span></div>
+            <div class="glucose-meta"><span>Dernière donnée : <b id="glucoseAge">—</b></span><span>Δ 5 min : <b id="delta">—</b></span></div>
+            <svg id="chart" viewBox="0 0 760 220" role="img" aria-label="Courbe de glycémie des six dernières heures"></svg>
+            <div class="range-selector"><button class="active" data-route="glycemie">Voir le détail glycémie</button></div>
+          </article>
 
-        <article class="card ai-card">
-          <div class="card-title"><span>✦ Assistant IA</span><span class="pill beta">Conseil uniquement</span></div>
-          <p class="muted">Observations et rappels à partir des données LIVE. Jamais de décision thérapeutique ni de recommandation de dose.</p>
-          <div id="aiAdvice" class="advice-list"></div>
-          <div class="ai-smart-head"><b>Analyse locale enrichie</b><button data-lab-action="analyze">Analyser maintenant</button></div>
-          <div id="aiSmartAdvice" class="smart-advice-list"></div>
-          <div class="ai-policy">L’assistant peut expliquer, résumer et rappeler. Il ne peut ni boluser, ni suspendre, ni modifier une cible, un profil ou une basale.</div>
-        </article>
+          <article class="card ai-card">
+            <div class="card-title"><span>✦ Assistant IA</span><span class="pill beta">Conseil uniquement</span></div>
+            <p class="muted">Observations et rappels à partir des données LIVE. Jamais de décision thérapeutique ni de recommandation de dose.</p>
+            <div id="aiAdvice" class="advice-list"></div>
+            <div class="ai-smart-head"><b>Analyse enrichie</b><button data-route="assistant">Ouvrir l’assistant</button></div>
+            <div class="ai-policy">L’assistant peut expliquer, résumer et rappeler. Il ne peut ni boluser, ni suspendre, ni modifier une cible, un profil ou une basale.</div>
+          </article>
+        </section>
+
+        <section class="metrics-grid v4">
+          <article class="card compact loop-card">
+            <div class="card-title"><span>↻ Loop</span><span id="loopMode" class="pill success">—</span></div>
+            <div class="metric-label">Dernier état Loop</div><div id="loopAge" class="metric-value">—</div>
+            <div id="loopDetail" class="tiny muted">—</div>
+            <div class="submetric"><span>Prévision Loop</span><b id="prediction">—</b></div>
+          </article>
+
+          <article class="card compact">
+            <div class="card-title"><span>💉 Insuline</span></div>
+            <div class="two-col"><div><span class="metric-label">IOB</span><b id="iob">—</b></div><div><span class="metric-label">COB</span><b id="cob">—</b></div><div><span class="metric-label">Basale actuelle</span><b id="basal">—</b><small id="basalSource">—</small></div><div><span class="metric-label">Dernier bolus</span><b id="bolus">—</b></div></div>
+          </article>
+
+          <article class="card compact device-card">
+            <div class="card-title"><span>📡 Appareils</span></div>
+            <div class="device-line"><span>Batterie pompe</span><b id="pumpBattery">—</b></div>
+            <div class="device-line"><span>Réservoir</span><b id="reservoir">—</b></div>
+            <div class="device-line"><span>Âge Pod</span><b id="pod">—</b></div>
+            <div class="device-line"><span>Âge capteur</span><b id="sensor">—</b></div>
+            <div id="sensorEnd" class="tiny muted">—</div>
+            <div class="device-line"><span>Dexcom</span><b id="dexcom">—</b></div>
+          </article>
+
+          <article class="card compact">
+            <div class="card-title"><span>♥ État global</span></div>
+            <div id="globalState" class="big-ok">—</div>
+            <div id="globalDetail" class="muted">—</div>
+            <div class="readonly-explainer">Le statut global est informatif : Loop et Dexcom restent les sources de référence.</div>
+          </article>
+        </section>
+
+        <section class="bottom-grid">
+          <article class="card">
+            <div class="card-title"><span>◎ Temps dans la cible</span><span id="tirPeriod" class="pill neutral">Période disponible</span></div>
+            <div class="tir"><div id="tirIn" class="tir-in"></div><div id="tirLow" class="tir-low"></div><div id="tirHigh" class="tir-high"></div></div>
+            <div class="tir-labels"><div><b id="tirInText">—</b><span>70–180 mg/dL</span></div><div><b id="tirLowText">—</b><span>&lt; 70</span></div><div><b id="tirHighText">—</b><span>&gt; 180</span></div></div>
+            <div class="tiny muted tir-samples">Calculé sur <span id="tirSamples">—</span> réellement présentes dans Nightscout.</div>
+          </article>
+          <article class="card"><div class="card-title"><span>⚠ Alertes système</span><span class="pill neutral">Règles déterministes</span></div><div id="systemAlerts" class="alert-list"></div></article>
+        </section>
       </section>
 
-      <section class="metrics-grid v4">
-        <article class="card compact loop-card">
-          <div class="card-title"><span>↻ Loop</span><span id="loopMode" class="pill success">—</span></div>
-          <div class="metric-label">Dernier état Loop</div><div id="loopAge" class="metric-value">—</div>
-          <div id="loopDetail" class="tiny muted">—</div>
-          <div class="submetric"><span>Prévision Loop</span><b id="prediction">—</b></div>
-        </article>
-
-        <article class="card compact">
-          <div class="card-title"><span>💉 Insuline</span></div>
-          <div class="two-col"><div><span class="metric-label">IOB</span><b id="iob">—</b></div><div><span class="metric-label">COB</span><b id="cob">—</b></div><div><span class="metric-label">Basale actuelle</span><b id="basal">—</b><small id="basalSource">—</small></div><div><span class="metric-label">Dernier bolus</span><b id="bolus">—</b></div></div>
-        </article>
-
-        <article class="card compact device-card">
-          <div class="card-title"><span>📡 Appareils</span></div>
-          <div class="device-line"><span>Batterie pompe</span><b id="pumpBattery">—</b></div>
-          <div class="device-line"><span>Réservoir</span><b id="reservoir">—</b></div>
-          <div class="device-line"><span>Âge Pod</span><b id="pod">—</b></div>
-          <div class="device-line"><span>Âge capteur</span><b id="sensor">—</b></div>
-          <div id="sensorEnd" class="tiny muted">—</div>
-          <div class="device-line"><span>Dexcom</span><b id="dexcom">—</b></div>
-        </article>
-
-        <article class="card compact">
-          <div class="card-title"><span>♥ État global</span></div>
-          <div id="globalState" class="big-ok">—</div>
-          <div id="globalDetail" class="muted">—</div>
-          <div class="readonly-explainer">Le statut global est informatif : Loop et Dexcom restent les sources de référence.</div>
-        </article>
-      </section>
-
-      <section class="card lab-card">
-        <div class="card-title"><span>🧪 Mode labo — commandes simulées</span><span class="pill lab-pill">Aucun effet réel</span></div>
-        <div class="lab-warning"><b>Simulation uniquement.</b> Ces contrôles servent à tester l’UX. Ils ne déclenchent aucune écriture réseau et ne peuvent modifier ni Loop, ni Nightscout, ni Dexcom, ni l’Omnipod.</div>
-        <div class="lab-grid">
-          <div class="lab-control"><span>Bolus simulé</span><div><input id="labBolus" type="number" min="0" step="0.05" value="0.5"><span>U</span><button data-lab-action="bolus">Simuler</button></div></div>
-          <div class="lab-control"><span>Pause pompe simulée</span><div><button class="danger-outline" data-lab-action="pause">Simuler une pause</button></div></div>
-          <div class="lab-control target"><span>Cible temporaire simulée</span><div><input id="labTargetLow" type="number" value="90"><span>–</span><input id="labTargetHigh" type="number" value="110"><span>mg/dL</span><input id="labTargetDuration" type="number" value="60"><span>min</span><button data-lab-action="target">Simuler</button></div></div>
-          <div class="lab-control"><span>Rappel local</span><div><input id="labReminder" type="text" maxlength="120" placeholder="Ex. vérifier le matériel"><button data-lab-action="reminder">Créer</button></div></div>
+      <section class="page-view" data-view="glycemie">
+        <div class="detail-grid">
+          <article class="card detail-hero">
+            <div class="card-title"><span>💧 Glycémie LIVE</span><span class="pill neutral">Dexcom ONE+</span></div>
+            <div class="glucose-row"><strong id="detailGlucose">—</strong><span class="unit">mg/dL</span><span id="detailTrend" class="trend">—</span><span id="detailTrendLabel" class="pill success">—</span></div>
+            <div class="glucose-meta"><span>Dernière donnée : <b id="detailGlucoseAge">—</b></span><span>Δ 5 min : <b id="detailDelta">—</b></span></div>
+            <svg id="glucoseDetailChart" viewBox="0 0 760 260" role="img" aria-label="Courbe détaillée de glycémie"></svg>
+          </article>
+          <article class="card">
+            <div class="card-title"><span>Résumé</span></div>
+            <div class="stat-stack"><div><span>Valeur actuelle</span><b id="detailCurrent">—</b></div><div><span>Variation 5 min</span><b id="detailDelta2">—</b></div><div><span>Tendance</span><b id="detailTrend2">—</b></div><div><span>Fraîcheur</span><b id="detailFreshness">—</b></div></div>
+          </article>
         </div>
-        <div class="lab-log-head"><b>Journal des simulations</b><button class="ghost" data-lab-action="clear">Effacer</button></div>
-        <div id="labLog" class="lab-log"></div>
-        <div id="labToast" class="lab-toast"></div>
       </section>
 
-      <section class="bottom-grid">
+      <section class="page-view" data-view="loop">
+        <div class="detail-grid three">
+          <article class="card"><div class="card-title"><span>↻ État Loop</span></div><div class="stat-stack"><div><span>Mode détecté</span><b id="detailLoopMode">—</b></div><div><span>Dernier état reçu</span><b id="detailLoopAge">—</b></div><div><span>Détail</span><b id="detailLoopDetail">—</b></div><div><span>Prévision</span><b id="detailPrediction">—</b></div></div></article>
+          <article class="card"><div class="card-title"><span>💉 Insuline</span></div><div class="stat-stack"><div><span>IOB</span><b id="detailIob">—</b></div><div><span>COB</span><b id="detailCob">—</b></div><div><span>Basale</span><b id="detailBasal">—</b></div><div><span>Dernier bolus</span><b id="detailBolus">—</b></div></div></article>
+          <article class="card"><div class="card-title"><span>📡 Pod & capteur</span></div><div class="stat-stack"><div><span>Batterie pompe</span><b id="detailBattery">—</b></div><div><span>Réservoir</span><b id="detailReservoir">—</b></div><div><span>Âge Pod</span><b id="detailPod">—</b></div><div><span>Âge capteur</span><b id="detailSensor">—</b></div></div></article>
+        </div>
+      </section>
+
+      <section class="page-view" data-view="historique">
         <article class="card">
-          <div class="card-title"><span>◎ Temps dans la cible</span><span id="tirPeriod" class="pill neutral">Période disponible</span></div>
-          <div class="tir"><div id="tirIn" class="tir-in"></div><div id="tirLow" class="tir-low"></div><div id="tirHigh" class="tir-high"></div></div>
-          <div class="tir-labels"><div><b id="tirInText">—</b><span>70–180 mg/dL</span></div><div><b id="tirLowText">—</b><span>&lt; 70</span></div><div><b id="tirHighText">—</b><span>&gt; 180</span></div></div>
-          <div class="tiny muted tir-samples">Calculé sur <span id="tirSamples">—</span> réellement présentes dans Nightscout.</div>
+          <div class="card-title"><span>◷ Historique récent</span><span class="pill neutral">Données chargées depuis Nightscout</span></div>
+          <svg id="historyChart" viewBox="0 0 760 260" role="img" aria-label="Historique de glycémie"></svg>
+          <div class="table-wrap"><table class="history-table"><thead><tr><th>Heure</th><th>Glycémie</th><th>État</th></tr></thead><tbody id="historyRows"></tbody></table></div>
         </article>
-        <article class="card"><div class="card-title"><span>⚠ Alertes système</span><span class="pill neutral">Règles déterministes</span></div><div id="systemAlerts" class="alert-list"></div></article>
       </section>
 
-      <footer>GlucyZen v0.6 LAB · Données réelles en lecture seule · Commandes simulées localement · Ne remplace pas Loop, Dexcom ni les alertes du dispositif médical.</footer>
+      <section class="page-view" data-view="rapports">
+        <div class="detail-grid">
+          <article class="card"><div class="card-title"><span>▥ Temps dans la cible</span><span id="reportPeriod" class="pill neutral">—</span></div><div class="report-score" id="reportTir">—</div><div class="tir report-tir"><div id="reportTirIn" class="tir-in"></div><div id="reportTirLow" class="tir-low"></div><div id="reportTirHigh" class="tir-high"></div></div><div class="tir-labels"><div><b id="reportIn">—</b><span>Dans la plage</span></div><div><b id="reportLow">—</b><span>Bas</span></div><div><b id="reportHigh">—</b><span>Haut</span></div></div></article>
+          <article class="card"><div class="card-title"><span>Données du rapport</span></div><div class="stat-stack"><div><span>Nombre de mesures</span><b id="reportSamples">—</b></div><div><span>Couverture estimée</span><b id="reportCoverage">—</b></div><div><span>Source</span><b>Nightscout LIVE</b></div><div><span>Plage utilisée</span><b>70–180 mg/dL</b></div></div></article>
+        </div>
+      </section>
+
+      <section class="page-view" data-view="assistant">
+        <div class="detail-grid assistant-layout">
+          <article class="card">
+            <div class="card-title"><span>✦ Assistant IA</span><span class="pill beta">Conseil uniquement</span></div>
+            <p class="muted">Analyse descriptive des données disponibles. Aucun calcul de dose et aucune commande thérapeutique.</p>
+            <div class="ai-smart-head"><b>Analyse locale enrichie</b><button data-lab-action="analyze">Analyser maintenant</button></div>
+            <div id="aiSmartAdvice" class="smart-advice-list"></div>
+          </article>
+          <article class="card"><div class="card-title"><span>Garde-fous</span></div><div class="safety-list"><div>✓ Pas de bolus réel</div><div>✓ Pas de changement de basale</div><div>✓ Pas de suspension de pompe</div><div>✓ Pas de modification de cible/profil</div><div>✓ Données LIVE utilisées uniquement pour expliquer et rappeler</div></div><div class="ai-policy">Les conseils affichés ne remplacent pas les consignes de l’équipe soignante ni les alertes officielles Dexcom/Loop.</div></article>
+        </div>
+      </section>
+
+      <section class="page-view" data-view="labo">
+        <section class="card lab-card standalone">
+          <div class="card-title"><span>🧪 Mode labo — commandes simulées</span><span class="pill lab-pill">Aucun effet réel</span></div>
+          <div class="lab-warning"><b>Simulation uniquement.</b> Ces contrôles servent à tester l’UX. Ils ne déclenchent aucune écriture réseau et ne peuvent modifier ni Loop, ni Nightscout, ni Dexcom, ni l’Omnipod.</div>
+          <div class="lab-grid">
+            <div class="lab-control"><span>Bolus simulé</span><div><input id="labBolus" type="number" min="0" step="0.05" value="0.5"><span>U</span><button data-lab-action="bolus">Simuler</button></div></div>
+            <div class="lab-control"><span>Pause pompe simulée</span><div><button class="danger-outline" data-lab-action="pause">Simuler une pause</button></div></div>
+            <div class="lab-control target"><span>Cible temporaire simulée</span><div><input id="labTargetLow" type="number" value="90"><span>–</span><input id="labTargetHigh" type="number" value="110"><span>mg/dL</span><input id="labTargetDuration" type="number" value="60"><span>min</span><button data-lab-action="target">Simuler</button></div></div>
+            <div class="lab-control"><span>Rappel local</span><div><input id="labReminder" type="text" maxlength="120" placeholder="Ex. vérifier le matériel"><button data-lab-action="reminder">Créer</button></div></div>
+          </div>
+          <div class="lab-log-head"><b>Journal des simulations</b><button class="ghost" data-lab-action="clear">Effacer</button></div>
+          <div id="labLog" class="lab-log"></div>
+          <div id="labToast" class="lab-toast"></div>
+        </section>
+      </section>
+
+      <section class="page-view" data-view="parametres">
+        <div class="detail-grid">
+          <article class="card"><div class="card-title"><span>⚙ Connexion</span></div><div class="stat-stack"><div><span>Source</span><b id="settingsSource">—</b></div><div><span>Mode</span><b>Lecture seule</b></div><div><span>Actualisation dashboard</span><b>30 secondes</b></div><div><span>Token</span><b>Stocké localement et chiffré</b></div></div></article>
+          <article class="card"><div class="card-title"><span>Maintenance</span></div><div class="settings-help"><p>Pour changer l’URL Nightscout ou le token :</p><code>Configurer.cmd</code><p>Pour récupérer la dernière version depuis GitHub :</p><code>Mettre-a-jour.cmd</code><p>Les fichiers locaux du dossier <code>data/</code> sont conservés pendant les mises à jour.</p></div></article>
+        </div>
+      </section>
+
+      <footer>GlucyZen v0.7 navigation · Données réelles en lecture seule · Commandes simulées localement · Ne remplace pas Loop, Dexcom ni les alertes du dispositif médical.</footer>
     </main>
   </div>
 <script src="/app.js"></script>
