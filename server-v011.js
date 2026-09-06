@@ -1,0 +1,200 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { URL } = require('url');
+
+const VERSION = '0.11';
+const PORT = process.env.PORT || 8787;
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const DATA_DIR = path.join(__dirname, 'data');
+const HISTORY_CACHE_FILE = path.join(DATA_DIR, 'historical-cache.json');
+const TIR_LOW = Number(process.env.TIR_LOW || 70);
+const TIR_HIGH = Number(process.env.TIR_HIGH || 180);
+const HISTORY_DAYS = 90;
+const CURRENT_ENTRIES = 2300;
+const CURRENT_TREATMENTS = 1800;
+const CURRENT_STATUS = 600;
+const HISTORICAL_ENTRIES = 30000;
+const HISTORICAL_TREATMENTS = 12000;
+const API3_PAGE_LIMIT = 1000;
+const TIMELINE_HOURS = 24;
+const HISTORY_REFRESH_MS = 30 * 60 * 1000;
+
+function json(res, status, body) {
+  res.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff' });
+  res.end(JSON.stringify(body));
+}
+function num(v){ if(v===null||v===undefined||v==='') return null; const n=Number(v); return Number.isFinite(n)?n:null; }
+function dateMs(v){ if(v===null||v===undefined||v==='')return null; if(typeof v==='number') return v<1e12?v*1000:v; const n=Date.parse(v); return Number.isFinite(n)?n:null; }
+function recTime(o){ return dateMs(o?.date)??dateMs(o?.dateString)??dateMs(o?.created_at)??dateMs(o?.timestamp)??dateMs(o?.clock); }
+function eventTime(o){ return dateMs(o?.created_at)??dateMs(o?.timestamp)??dateMs(o?.date)??dateMs(o?.entered_at)??dateMs(o?.dateString); }
+function clean(v,max=180){ if(v===null||v===undefined)return null; const s=String(v).trim().replace(/\s+/g,' '); return s?s.slice(0,max):null; }
+function getPath(o,p){ return p.split('.').reduce((a,k)=>a==null?undefined:a[k],o); }
+function firstNum(records,paths,pred=()=>true){ for(const r of records||[]) for(const p of paths){ const n=num(getPath(r,p)); if(n!==null&&pred(n)) return {value:n,path:p}; } return {value:null,path:null}; }
+function minsAgo(v){ const t=dateMs(v); return t===null?null:Math.max(0,Math.round((Date.now()-t)/60000)); }
+function directionInfo(d){ const m={DoubleUp:['↑↑','Monte très vite'],SingleUp:['↑','Monte'],FortyFiveUp:['↗','Monte doucement'],Flat:['→','Stable'],FortyFiveDown:['↘','Descend doucement'],SingleDown:['↓','Descend'],DoubleDown:['↓↓','Descend très vite']}; return m[d]||['—',d||'Tendance indisponible']; }
+function treatmentCarbs(t){ return num(t?.carbs??t?.carbohydrates??t?.carbInput??t?.carbsInput); }
+function treatmentInsulin(t){ return num(t?.insulin??t?.insulinDelivered??t?.bolus??t?.amount); }
+function treatmentDuration(t){ return num(t?.duration??t?.durationInMinutes??t?.duration_mins); }
+function treatmentBasal(t){ return num(t?.rate??t?.absolute??t?.basalRate??t?.basal_rate); }
+function eventText(t){ return [t?.eventType,t?.event_type,t?.reason,t?.notes,t?.type].filter(Boolean).join(' ').toLowerCase(); }
+
+async function fetchResponse(url, options={}){
+  return fetch(url,{method:'GET',cache:'no-store',headers:{Accept:'application/json','Cache-Control':'no-cache',...(options.headers||{})},signal:AbortSignal.timeout(15000)});
+}
+async function readJson(response,label){ const text=await response.text(); let body=null; try{body=text?JSON.parse(text):null}catch{} if(!response.ok) throw new Error(`${label}: HTTP ${response.status}`); return body; }
+async function jwtFor(base,subjectToken){
+  const u=new URL(`/api/v2/authorization/request/token=${encodeURIComponent(subjectToken)}`,base).toString();
+  const body=await readJson(await fetchResponse(u),'Authentification Nightscout');
+  if(!body?.token) throw new Error('Nightscout n’a pas renvoyé de JWT.');
+  return body.token;
+}
+function v3Url(base,collection,params={}){ const u=new URL(`/api/v3/${collection}`,base); Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,String(v))); return u.toString(); }
+async function fetchV3(base,jwt,collection,params){ const body=await readJson(await fetchResponse(v3Url(base,collection,params),{headers:{Authorization:`Bearer ${jwt}`}}),`Nightscout v3/${collection}`); return Array.isArray(body)?body:Array.isArray(body?.result)?body.result:(body?.result||[]); }
+async function fetchPaged(base,jwt,collection,total,sortField){
+  const out=[]; let skip=0;
+  while(out.length<total){
+    const limit=Math.min(API3_PAGE_LIMIT,total-out.length);
+    const arr=await fetchV3(base,jwt,collection,{'sort$desc':sortField,limit,skip});
+    if(!Array.isArray(arr)||!arr.length)break;
+    out.push(...arr); if(arr.length<limit)break; skip+=arr.length;
+  }
+  return out;
+}
+async function fetchCurrent(base,token){
+  const jwt=await jwtFor(base,token);
+  const [entries,devicestatus,treatments]=await Promise.all([
+    fetchPaged(base,jwt,'entries',CURRENT_ENTRIES,'date'),
+    fetchPaged(base,jwt,'devicestatus',CURRENT_STATUS,'created_at'),
+    fetchPaged(base,jwt,'treatments',CURRENT_TREATMENTS,'created_at').catch(()=>[])
+  ]);
+  return {entries,devicestatus,treatments,authStrategy:'v3-jwt'};
+}
+
+function loadHistoryCache(){
+  try{ if(!fs.existsSync(HISTORY_CACHE_FILE)) return {entries:[],treatments:[],fetchedAt:0}; const x=JSON.parse(fs.readFileSync(HISTORY_CACHE_FILE,'utf8')); return {entries:Array.isArray(x.entries)?x.entries:[],treatments:Array.isArray(x.treatments)?x.treatments:[],fetchedAt:Number(x.fetchedAt)||0}; }catch{return {entries:[],treatments:[],fetchedAt:0};}
+}
+let historicalCache=loadHistoryCache();
+let historyRefreshPromise=null;
+function persistHistoryCache(){ try{fs.mkdirSync(DATA_DIR,{recursive:true});fs.writeFileSync(HISTORY_CACHE_FILE,JSON.stringify(historicalCache));}catch(e){console.warn('[history-cache]',e.message);} }
+function mergeUnique(a,b,timeFn){
+  const map=new Map();
+  for(const x of [...(a||[]),...(b||[])]){ const t=timeFn(x); if(!t)continue; const key=clean(x?._id??x?.id??x?.identifier,100)||`${t}:${num(x?.sgv)??treatmentCarbs(x)??''}:${treatmentInsulin(x)??''}`; map.set(key,x); }
+  return [...map.values()].sort((x,y)=>(timeFn(y)||0)-(timeFn(x)||0));
+}
+async function refreshHistorical(base,token){
+  const jwt=await jwtFor(base,token);
+  const [entries,treatments]=await Promise.all([
+    fetchPaged(base,jwt,'entries',HISTORICAL_ENTRIES,'date'),
+    fetchPaged(base,jwt,'treatments',HISTORICAL_TREATMENTS,'created_at').catch(()=>[])
+  ]);
+  const cutoff=Date.now()-HISTORY_DAYS*86400000;
+  historicalCache={
+    entries:mergeUnique(historicalCache.entries,entries,recTime).filter(e=>(recTime(e)||0)>=cutoff),
+    treatments:mergeUnique(historicalCache.treatments,treatments,eventTime).filter(t=>(eventTime(t)||0)>=cutoff),
+    fetchedAt:Date.now()
+  };
+  persistHistoryCache();
+  console.log(`[history] ${historicalCache.entries.length} glucose points, ${historicalCache.treatments.length} treatments cached.`);
+}
+function ensureHistoricalRefresh(base,token){
+  if(historyRefreshPromise) return;
+  if(Date.now()-(historicalCache.fetchedAt||0)<HISTORY_REFRESH_MS && historicalCache.entries.length) return;
+  historyRefreshPromise=refreshHistorical(base,token).catch(e=>console.warn('[history]',e.message)).finally(()=>{historyRefreshPromise=null;});
+}
+function historyData(currentEntries,currentTreatments){
+  const entries=mergeUnique(historicalCache.entries,currentEntries,recTime);
+  const treatments=mergeUnique(historicalCache.treatments,currentTreatments,eventTime);
+  return {entries,treatments,status:historyRefreshPromise?'loading':(historicalCache.entries.length?'ready':'collecting')};
+}
+
+function calcRange(entries){
+  const cutoff=Date.now()-7*86400000;
+  const pts=(entries||[]).map(e=>({t:recTime(e),v:num(e?.sgv)})).filter(p=>p.t>=cutoff&&p.v>=20&&p.v<=600);
+  if(pts.length<3)return {inRange:null,low:null,high:null,sampleCount:pts.length,coverageHours:0,label:'Pas assez de données'};
+  let lo=0,hi=0,ok=0; for(const p of pts){if(p.v<TIR_LOW)lo++;else if(p.v>TIR_HIGH)hi++;else ok++;}
+  const times=pts.map(p=>p.t); const coverage=(Math.max(...times)-Math.min(...times))/3600000; const n=pts.length;
+  return {inRange:Math.round(ok*1000/n)/10,low:Math.round(lo*1000/n)/10,high:Math.round(hi*1000/n)/10,sampleCount:n,coverageHours:Math.round(coverage*10)/10,label:coverage>=144?'7 derniers jours':coverage>=24?`${Math.round(coverage/24)} j de données`:`${Math.max(1,Math.round(coverage))} h de données`};
+}
+function buildChart(entries,hours=24){ const cutoff=Date.now()-hours*3600000; return (entries||[]).map(e=>({t:recTime(e),value:num(e?.sgv)})).filter(p=>p.t>=cutoff&&p.value>=20&&p.value<=600).sort((a,b)=>a.t-b.t).slice(-420); }
+function eventMeta(t,at,fallback){
+  const rawAbs=num(t?.absorptionTime??t?.absorption_time??t?.absorptionTimeHours??t?.absorptionTimeMinutes??t?.absorptionTimeInMinutes??t?.absorption);
+  const abs=rawAbs&&rawAbs>0?`${Math.round((rawAbs>24?rawAbs/60:rawAbs)*10)/10} h`:null;
+  const dur=treatmentDuration(t);
+  return {id:clean(t?._id??t?.id??t?.identifier)||`${at}-${fallback}`,t:at,eventType:clean(t?.eventType??t?.event_type??t?.type??t?.reason)||fallback,enteredBy:clean(t?.enteredBy??t?.entered_by??t?.device??t?.source??t?.origin),notes:clean(t?.notes??t?.note??t?.reason,240),absorptionDisplay:abs,durationDisplay:dur?`${Math.round(dur)} min`:null,source:'Nightscout treatment'};
+}
+function buildTimeline(entries,treatments,devicestatus){
+  const cutoff=Date.now()-TIMELINE_HOURS*3600000; const glucose=buildChart(entries,TIMELINE_HOURS); const events=[];
+  for(const t of treatments||[]){ const at=eventTime(t); if(!at||at<cutoff)continue; const carbs=treatmentCarbs(t),ins=treatmentInsulin(t); if(carbs>0&&carbs<500)events.push({...eventMeta(t,at,'Carb Correction'),type:'carbs',value:Math.round(carbs*10)/10,unit:'g',label:`${Math.round(carbs*10)/10} g`,carbs:Math.round(carbs*10)/10,insulin:ins>0?Math.round(ins*100)/100:null}); if(ins>0&&ins<50)events.push({...eventMeta(t,at,'Bolus'),type:'bolus',value:Math.round(ins*100)/100,unit:'U',label:`${Math.round(ins*100)/100} U`,insulin:Math.round(ins*100)/100,carbs:carbs>0?Math.round(carbs*10)/10:null}); }
+  events.sort((a,b)=>a.t-b.t);
+  const basal=[]; for(const r of devicestatus||[]){ const at=recTime(r); if(!at||at<cutoff-3600000)continue; const hit=firstNum([r],['pump.basal.rate','pump.basal.absolute','loop.enacted.tempBasal.rate','loop.enacted.rate','loop.recommended.tempBasal.rate','loop.recommended.rate','loop.basal.rate'],n=>n>=0&&n<=30); if(hit.value!==null)basal.push({t:at,rate:Math.round(hit.value*1000)/1000}); }
+  basal.sort((a,b)=>a.t-b.t); return {glucose,events,basal:basal.slice(-320),hours:TIMELINE_HOURS};
+}
+function deviceData(status,treatments){
+  const records=[...(status||[])].sort((a,b)=>(recTime(b)||0)-(recTime(a)||0)); const loopRec=records.find(r=>r?.loop)||null; const loop=loopRec?.loop||{}; const loopAge=minsAgo(loop?.timestamp??loopRec?.created_at??loopRec?.date);
+  let mode='Actif',detail='Mode Closed/Open non exposé'; for(const p of ['closedLoop','isClosedLoop','closed','settings.closedLoop']){const v=getPath(loop,p);if(typeof v==='boolean'){mode=v?'Closed':'Open';detail=`loop.${p}`;break;}}
+  const iob=firstNum(records,['loop.iob.iob','loop.iob','loop.recommended.iob','loop.enacted.iob','pump.iob.iob','pump.iob','iob.iob','iob'],n=>n>=-20&&n<=50).value;
+  const cob=firstNum(records,['loop.cob.cob','loop.cob','loop.recommended.cob','loop.enacted.cob','pump.cob.cob','pump.cob','cob.cob','cob'],n=>n>=0&&n<=1000).value;
+  const batt=firstNum(records,['pump.battery.percent','pump.battery.percentRemaining','pump.battery.percentage','pump.batteryPercent','battery.percent'],n=>n>=0&&n<=100).value;
+  const reservoir=firstNum(records,['pump.reservoir','pump.reservoir.units','pump.reservoirRemaining','reservoir'],n=>n>=0&&n<=300).value;
+  const basal=firstNum(records,['pump.basal.rate','pump.basal.absolute','loop.enacted.tempBasal.rate','loop.enacted.rate','loop.recommended.tempBasal.rate','loop.recommended.rate','loop.basal.rate'],n=>n>=0&&n<=30).value;
+  return {loop:{mode,modeDetail:detail,lastLoopMinutes:loopAge,status:loopAge===null?'unknown':loopAge<=15?'fresh':'stale',prediction:null},iob,cob,basal,pumpBattery:batt,reservoir};
+}
+
+function lowerBound(arr,t){let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m].t<t)lo=m+1;else hi=m;}return lo;}
+function nearest(points,t,tol=12*60000){ if(!points.length)return null; const i=lowerBound(points,t); let best=null; for(const j of [i-1,i]){if(j>=0&&j<points.length){const d=Math.abs(points[j].t-t);if(d<=tol&&(!best||d<best.d))best={...points[j],d};}} return best; }
+function prefixSeries(treatments,getter){ const rows=(treatments||[]).map(t=>({t:eventTime(t),v:getter(t)})).filter(x=>x.t&&x.v>0).sort((a,b)=>a.t-b.t); let s=0; return {rows,prefix:rows.map(x=>{s+=x.v;return s;})}; }
+function seriesSum(series,from,to){ const {rows,prefix}=series; const a=lowerBound(rows,from),b=lowerBound(rows,to+1)-1; if(b<a||a>=rows.length)return 0; return prefix[b]-(a?prefix[a-1]:0); }
+function quantile(vals,q){ if(!vals.length)return null; const a=[...vals].sort((x,y)=>x-y); const p=(a.length-1)*q,l=Math.floor(p),h=Math.ceil(p); return l===h?a[l]:a[l]+(a[h]-a[l])*(p-l); }
+function median(vals){return quantile(vals,.5);}
+function hourDistance(a,b){const d=Math.abs(a-b);return Math.min(d,24-d);}
+
+function historicalIntelligence(entries,treatments,status){
+  const points=(entries||[]).map(e=>({t:recTime(e),v:num(e?.sgv)})).filter(p=>p.t&&p.v>=20&&p.v<=600).sort((a,b)=>a.t-b.t);
+  if(points.length<20) return {status:'collecting',coverageDays:0,examples:0,confidence:'insuffisante',forecast:[],mealContext:null,summary:['Historique insuffisant pour produire une projection personnalisée.']};
+  const coverageDays=(points.at(-1).t-points[0].t)/86400000;
+  const latest=points.at(-1); const before30=nearest(points,latest.t-30*60000); const currentDelta30=before30?latest.v-before30.v:0;
+  const carbSeries=prefixSeries(treatments,treatmentCarbs), insulinSeries=prefixSeries(treatments,treatmentInsulin);
+  const currentCarbs=seriesSum(carbSeries,latest.t-3*3600000,latest.t), currentIns=seriesSum(insulinSeries,latest.t-3*3600000,latest.t); const currentHour=new Date(latest.t).getHours()+new Date(latest.t).getMinutes()/60;
+  const candidates=[];
+  for(let i=12;i<points.length-30;i+=6){
+    const p=points[i]; if(latest.t-p.t<4*3600000)continue; const p30=nearest(points,p.t-30*60000); if(!p30)continue;
+    const f30=nearest(points,p.t+30*60000),f60=nearest(points,p.t+60*60000),f90=nearest(points,p.t+90*60000),f120=nearest(points,p.t+120*60000); if(!f30||!f60||!f90||!f120)continue;
+    const hour=new Date(p.t).getHours()+new Date(p.t).getMinutes()/60; const carbs=seriesSum(carbSeries,p.t-3*3600000,p.t),ins=seriesSum(insulinSeries,p.t-3*3600000,p.t);
+    const distance=Math.abs(p.v-latest.v)/35 + Math.abs((p.v-p30.v)-currentDelta30)/25 + hourDistance(hour,currentHour)/4 + Math.abs(carbs-currentCarbs)/40 + Math.abs(ins-currentIns)/4;
+    candidates.push({distance,base:p.v,futures:[f30.v,f60.v,f90.v,f120.v],t:p.t});
+  }
+  candidates.sort((a,b)=>a.distance-b.distance); const chosen=candidates.slice(0,20); const horizons=[30,60,90,120];
+  const forecast=horizons.map((min,idx)=>{const vals=chosen.map(c=>latest.v+(c.futures[idx]-c.base));return {minutes:min,median:vals.length?Math.round(median(vals)):null,low:vals.length?Math.round(quantile(vals,.2)):null,high:vals.length?Math.round(quantile(vals,.8)):null};});
+  const medScore=chosen.length?median(chosen.map(c=>c.distance)):null; let confidence='insuffisante'; if(chosen.length>=6)confidence='faible'; if(chosen.length>=12&&medScore<3)confidence='modérée';
+
+  const latestMeal=[...(treatments||[])].filter(t=>treatmentCarbs(t)>0&&eventTime(t)&&latest.t-eventTime(t)>=0&&latest.t-eventTime(t)<=4*3600000).sort((a,b)=>eventTime(b)-eventTime(a))[0]||null;
+  let mealContext=null;
+  if(latestMeal){ const mt=eventTime(latestMeal),carbs=treatmentCarbs(latestMeal),hour=new Date(mt).getHours()+new Date(mt).getMinutes()/60; const episodes=[];
+    for(const t of treatments||[]){const tt=eventTime(t),c=treatmentCarbs(t);if(!tt||tt>=mt-6*3600000||!c)continue;const h=new Date(tt).getHours()+new Date(tt).getMinutes()/60;if(Math.abs(c-carbs)>Math.max(10,carbs*.3)||hourDistance(h,hour)>3)continue;const b=nearest(points,tt,12*60000);if(!b)continue;const start=lowerBound(points,tt),end=lowerBound(points,tt+2*3600000);const seg=points.slice(start,end);if(seg.length<6)continue;let peak=seg[0];for(const x of seg)if(x.v>peak.v)peak=x;const e120=nearest(points,tt+120*60000);episodes.push({peakDelta:peak.v-b.v,timeToPeak:(peak.t-tt)/60000,endDelta:e120?e120.v-b.v:null});}
+    if(episodes.length>=3) mealContext={carbs:Math.round(carbs*10)/10,count:episodes.length,medianPeakDelta:Math.round(median(episodes.map(x=>x.peakDelta))),medianTimeToPeak:Math.round(median(episodes.map(x=>x.timeToPeak))),medianEndDelta:Math.round(median(episodes.map(x=>x.endDelta).filter(Number.isFinite))||0)};
+  }
+  const summary=[];
+  if(chosen.length>=6&&forecast[1]?.median!=null) summary.push(`Sur ${chosen.length} situations historiques proches, la médiane observée suggère environ ${forecast[1].median} mg/dL à +60 min (fourchette historique ${forecast[1].low}–${forecast[1].high}).`);
+  if(mealContext) summary.push(`Repas similaires au dernier apport (${mealContext.carbs} g) : ${mealContext.count} épisodes, pic médian +${mealContext.medianPeakDelta} mg/dL vers ${mealContext.medianTimeToPeak} min.`);
+  if(coverageDays<14) summary.push(`Seulement ${Math.max(1,Math.round(coverageDays))} jours d’historique sont disponibles : les estimations restent peu robustes.`);
+  summary.push('Projection descriptive expérimentale : elle ne doit pas servir à décider une dose, une correction ou un traitement d’hypoglycémie.');
+  return {status,coverageDays:Math.round(coverageDays*10)/10,examples:chosen.length,confidence,forecast,mealContext,summary};
+}
+
+async function snapshot(){
+  const base=process.env.NIGHTSCOUT_URL?.trim(),token=process.env.NIGHTSCOUT_TOKEN?.trim(); if(!base||!token)throw new Error('Nightscout non configuré.');
+  const {entries,devicestatus,treatments,authStrategy}=await fetchCurrent(base,token); ensureHistoricalRefresh(base,token);
+  const sorted=[...entries].sort((a,b)=>(recTime(b)||0)-(recTime(a)||0)); if(!sorted.length)throw new Error('Aucune donnée CGM Nightscout.');
+  const latest=sorted[0],prev=sorted[1]; const glucose=num(latest?.sgv),prevG=num(prev?.sgv),delta=glucose!==null&&prevG!==null?glucose-prevG:null; const [trend,trendLabel]=directionInfo(latest?.direction); const age=minsAgo(latest?.date??latest?.dateString); const d=deviceData(devicestatus,treatments); const lastBolus=[...(treatments||[])].filter(t=>treatmentInsulin(t)>0).sort((a,b)=>(eventTime(b)||0)-(eventTime(a)||0))[0]||null;
+  const hist=historyData(entries,treatments); const intelligence=historicalIntelligence(hist.entries,hist.treatments,hist.status); const range=calcRange(entries),chart=buildChart(entries),timeline=buildTimeline(entries,treatments,devicestatus);
+  const aiAdvice=[`Lecture actuelle : ${glucose??'—'} mg/dL · ${trendLabel}.`,...(intelligence.summary||[]).slice(0,2)];
+  const alerts=[]; if(age!==null&&age>12)alerts.push({severity:'warning',text:`Données CGM anciennes : dernière mesure il y a ${age} min.`}); if(!alerts.length)alerts.push({severity:'info',text:`Nightscout LIVE chargé en lecture seule (${authStrategy}).`}); if(hist.status==='loading')alerts.push({severity:'info',text:'Historique 90 jours en cours de synchronisation en arrière-plan.'});
+  return {generatedAt:new Date().toISOString(),source:'nightscout-live',connection:{authStrategy,readOnly:true,writesExposed:false},glucose:{value:glucose,unit:'mg/dL',trend,trendLabel,minutesAgo:age,delta},loop:d.loop,insulin:{iob:d.iob,cob:d.cob,basal:d.basal,basalSource:null,lastBolus:lastBolus?treatmentInsulin(lastBolus):null,lastBolusTime:lastBolus?new Date(eventTime(lastBolus)).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):null},devices:{podAgeHours:null,podExpiresInHours:null,sensorAgeHours:null,sensorExpiresAt:null,dexcom:age!==null&&age>12?'Données possiblement obsolètes':'Données reçues via Nightscout',reservoir:d.reservoir,pumpBattery:d.pumpBattery},range,chart,timeline,intelligence,diagnostics:{entriesCount:entries.length,treatmentsCount:treatments.length,historicalEntries:hist.entries.length,historicalTreatments:hist.treatments.length,historyStatus:hist.status},systemAlerts:alerts,aiAdvice};
+}
+
+function unavailable(error){return {generatedAt:new Date().toISOString(),source:'nightscout-error',error:error.message,connection:{readOnly:true,writesExposed:false},glucose:{value:null,unit:'mg/dL',trend:'—',trendLabel:'Indisponible',minutesAgo:null,delta:null},loop:{mode:'—',lastLoopMinutes:null,status:'error'},insulin:{iob:null,cob:null,basal:null,lastBolus:null},devices:{dexcom:'Connexion Nightscout impossible',reservoir:null,pumpBattery:null},range:{inRange:null,low:null,high:null,sampleCount:0,coverageHours:0,label:'Indisponible'},chart:[],timeline:{glucose:[],events:[],basal:[],hours:24},intelligence:{status:'unavailable',coverageDays:0,examples:0,confidence:'insuffisante',forecast:[],mealContext:null,summary:['Analyse historique indisponible tant que Nightscout ne répond pas.']},systemAlerts:[{severity:'warning',text:error.message}],aiAdvice:['Analyse indisponible.']};}
+function serveStatic(req,res){let pathname=decodeURIComponent(new URL(req.url,`http://${req.headers.host}`).pathname);if(pathname==='/')pathname='/index.html';const filePath=path.normalize(path.join(PUBLIC_DIR,pathname));if(!filePath.startsWith(PUBLIC_DIR)){res.writeHead(403);res.end('Forbidden');return;}fs.readFile(filePath,(err,data)=>{if(err){res.writeHead(404);res.end('Not found');return;}const ext=path.extname(filePath);const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml'};res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':'no-store'});res.end(data);});}
+
+const server=http.createServer(async(req,res)=>{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname.startsWith('/api/')&&req.method!=='GET')return json(res,405,{error:'Read-only API: writes are disabled by design.'});if(url.pathname==='/api/live'){try{return json(res,200,await snapshot());}catch(e){console.error('[GlucyZen]',e.message);return json(res,503,unavailable(e));}}if(url.pathname==='/api/health')return json(res,200,{ok:true,version:VERSION,mode:'live',historyTargetDays:HISTORY_DAYS,historicalIntelligence:true,readOnly:true,writesExposed:false});serveStatic(req,res);});
+server.listen(PORT,()=>{console.log(`GlucyZen v${VERSION} running on http://localhost:${PORT}`);console.log('Historical Intelligence: 90-day cache + similar-situation forecast.');console.log('Nightscout remains read-only; no therapeutic write routes are exposed.');});
