@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GlucyZen — Loop & Dexcom</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brandmark">G</div><div><strong>GlucyZen</strong><span>Loop + Dexcom ONE+</span></div></div>
+      <nav>
+        <button class="nav active">⌂ <span>Tableau de bord</span></button>
+        <button class="nav">◌ <span>Glycémie</span></button>
+        <button class="nav">↻ <span>Loop</span></button>
+        <button class="nav">◷ <span>Historique</span></button>
+        <button class="nav">▥ <span>Rapports</span></button>
+        <button class="nav">✦ <span>Assistant IA</span></button>
+        <button class="nav">⚙ <span>Paramètres</span></button>
+      </nav>
+      <div class="guardrail"><b>IA = conseil uniquement</b><span>Aucun accès aux commandes Loop, Pod ou Dexcom.</span></div>
+    </aside>
+
+    <main>
+      <header>
+        <div><h1>Dashboard Glycémie & Loop</h1><p>Vue unifiée, données Nightscout réelles et architecture en lecture seule.</p></div>
+        <div class="header-badges">
+          <div class="top-status"><span class="dot"></span><span id="sourceLabel">Chargement…</span><span id="lastRefresh">—</span></div>
+          <div id="readOnlyBadge" class="readonly-badge">🔒 Lecture seule</div>
+        </div>
+      </header>
+
+      <section class="hero-grid">
+        <article class="card glucose-card">
+          <div class="card-title"><span>💧 Glycémie (Dexcom ONE+)</span><span class="pill neutral">Plage affichée 70–180</span></div>
+          <div class="glucose-row"><strong id="glucoseValue">—</strong><span class="unit">mg/dL</span><span id="trendArrow" class="trend">—</span><span id="trendLabel" class="pill success">—</span></div>
+          <div class="glucose-meta"><span>Dernière donnée : <b id="glucoseAge">—</b></span><span>Δ 5 min : <b id="delta">—</b></span></div>
+          <svg id="chart" viewBox="0 0 760 220" role="img" aria-label="Courbe de glycémie des six dernières heures"></svg>
+          <div class="range-selector"><button class="active">6 h LIVE</button></div>
+        </article>
+
+        <article class="card ai-card">
+          <div class="card-title"><span>✦ Assistant IA</span><span class="pill beta">Conseil uniquement</span></div>
+          <p class="muted">Observations descriptives en lecture seule. Jamais de décision thérapeutique.</p>
+          <div id="aiAdvice" class="advice-list"></div>
+          <div class="ai-policy">L'assistant peut expliquer, résumer et rappeler. Il ne peut ni boluser, ni suspendre, ni modifier une cible, un profil ou une basale.</div>
+        </article>
+      </section>
+
+      <section class="metrics-grid v4">
+        <article class="card compact loop-card">
+          <div class="card-title"><span>↻ Loop</span><span id="loopMode" class="pill success">—</span></div>
+          <div class="metric-label">Dernier état Loop</div><div id="loopAge" class="metric-value">—</div>
+          <div id="loopDetail" class="tiny muted">—</div>
+          <div class="submetric"><span>Prévision Loop</span><b id="prediction">—</b></div>
+        </article>
+
+        <article class="card compact">
+          <div class="card-title"><span>💉 Insuline</span></div>
+          <div class="two-col"><div><span class="metric-label">IOB</span><b id="iob">—</b></div><div><span class="metric-label">COB</span><b id="cob">—</b></div><div><span class="metric-label">Basale actuelle</span><b id="basal">—</b><small id="basalSource">—</small></div><div><span class="metric-label">Dernier bolus</span><b id="bolus">—</b></div></div>
+        </article>
+
+        <article class="card compact device-card">
+          <div class="card-title"><span>📡 Appareils</span></div>
+          <div class="device-line"><span>Batterie pompe</span><b id="pumpBattery">—</b></div>
+          <div class="device-line"><span>Réservoir</span><b id="reservoir">—</b></div>
+          <div class="device-line"><span>Âge Pod</span><b id="pod">—</b></div>
+          <div class="device-line"><span>Âge capteur</span><b id="sensor">—</b></div>
+          <div id="sensorEnd" class="tiny muted">—</div>
+          <div class="device-line"><span>Dexcom</span><b id="dexcom">—</b></div>
+        </article>
+
+        <article class="card compact">
+          <div class="card-title"><span>♥ État global</span></div>
+          <div id="globalState" class="big-ok">—</div>
+          <div id="globalDetail" class="muted">—</div>
+          <div class="readonly-explainer">Le statut global est informatif : Loop et Dexcom restent les sources de référence.</div>
+        </article>
+      </section>
+
+      <section class="bottom-grid">
+        <article class="card">
+          <div class="card-title"><span>◎ Temps dans la cible</span><span id="tirPeriod" class="pill neutral">Période disponible</span></div>
+          <div class="tir"><div id="tirIn" class="tir-in"></div><div id="tirLow" class="tir-low"></div><div id="tirHigh" class="tir-high"></div></div>
+          <div class="tir-labels"><div><b id="tirInText">—</b><span>70–180 mg/dL</span></div><div><b id="tirLowText">—</b><span>&lt; 70</span></div><div><b id="tirHighText">—</b><span>&gt; 180</span></div></div>
+          <div class="tiny muted tir-samples">Calculé sur <span id="tirSamples">—</span> réellement présentes dans Nightscout.</div>
+        </article>
+        <article class="card"><div class="card-title"><span>⚠ Alertes système</span><span class="pill neutral">Règles déterministes</span></div><div id="systemAlerts" class="alert-list"></div></article>
+      </section>
+
+      <footer>GlucyZen MVP v0.4 · Prototype en lecture seule · Ne remplace pas Loop, Dexcom ni les alertes du dispositif médical.</footer>
+    </main>
+  </div>
+<script src="/app.js"></script>
+</body>
+</html>

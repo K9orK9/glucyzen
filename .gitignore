@@ -1,0 +1,13 @@
+# Donnees et secrets locaux : ne jamais publier
+data/
+.env
+*.env
+*.log
+
+# Dependances / OS
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Archives locales
+*.zip
