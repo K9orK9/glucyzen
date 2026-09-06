@@ -17,17 +17,19 @@
         <button class="nav">◷ <span>Historique</span></button>
         <button class="nav">▥ <span>Rapports</span></button>
         <button class="nav">✦ <span>Assistant IA</span></button>
+        <button class="nav">🧪 <span>Mode labo</span></button>
         <button class="nav">⚙ <span>Paramètres</span></button>
       </nav>
-      <div class="guardrail"><b>IA = conseil uniquement</b><span>Aucun accès aux commandes Loop, Pod ou Dexcom.</span></div>
+      <div class="guardrail"><b>Mode labo = simulation</b><span>Les données réelles restent en lecture seule. Aucune commande n’est envoyée à Loop, Pod ou Dexcom.</span></div>
     </aside>
 
     <main>
       <header>
-        <div><h1>Dashboard Glycémie & Loop</h1><p>Vue unifiée, données Nightscout réelles et architecture en lecture seule.</p></div>
+        <div><h1>Dashboard Glycémie & Loop</h1><p>Vue unifiée LIVE + laboratoire local pour tester l’interface sans agir sur les dispositifs.</p></div>
         <div class="header-badges">
           <div class="top-status"><span class="dot"></span><span id="sourceLabel">Chargement…</span><span id="lastRefresh">—</span></div>
-          <div id="readOnlyBadge" class="readonly-badge">🔒 Lecture seule</div>
+          <div id="readOnlyBadge" class="readonly-badge">🔒 Flux réel lecture seule</div>
+          <div class="lab-badge">🧪 LAB local</div>
         </div>
       </header>
 
@@ -42,9 +44,11 @@
 
         <article class="card ai-card">
           <div class="card-title"><span>✦ Assistant IA</span><span class="pill beta">Conseil uniquement</span></div>
-          <p class="muted">Observations descriptives en lecture seule. Jamais de décision thérapeutique.</p>
+          <p class="muted">Observations et rappels à partir des données LIVE. Jamais de décision thérapeutique ni de recommandation de dose.</p>
           <div id="aiAdvice" class="advice-list"></div>
-          <div class="ai-policy">L'assistant peut expliquer, résumer et rappeler. Il ne peut ni boluser, ni suspendre, ni modifier une cible, un profil ou une basale.</div>
+          <div class="ai-smart-head"><b>Analyse locale enrichie</b><button data-lab-action="analyze">Analyser maintenant</button></div>
+          <div id="aiSmartAdvice" class="smart-advice-list"></div>
+          <div class="ai-policy">L’assistant peut expliquer, résumer et rappeler. Il ne peut ni boluser, ni suspendre, ni modifier une cible, un profil ou une basale.</div>
         </article>
       </section>
 
@@ -79,6 +83,20 @@
         </article>
       </section>
 
+      <section class="card lab-card">
+        <div class="card-title"><span>🧪 Mode labo — commandes simulées</span><span class="pill lab-pill">Aucun effet réel</span></div>
+        <div class="lab-warning"><b>Simulation uniquement.</b> Ces contrôles servent à tester l’UX. Ils ne déclenchent aucune écriture réseau et ne peuvent modifier ni Loop, ni Nightscout, ni Dexcom, ni l’Omnipod.</div>
+        <div class="lab-grid">
+          <div class="lab-control"><span>Bolus simulé</span><div><input id="labBolus" type="number" min="0" step="0.05" value="0.5"><span>U</span><button data-lab-action="bolus">Simuler</button></div></div>
+          <div class="lab-control"><span>Pause pompe simulée</span><div><button class="danger-outline" data-lab-action="pause">Simuler une pause</button></div></div>
+          <div class="lab-control target"><span>Cible temporaire simulée</span><div><input id="labTargetLow" type="number" value="90"><span>–</span><input id="labTargetHigh" type="number" value="110"><span>mg/dL</span><input id="labTargetDuration" type="number" value="60"><span>min</span><button data-lab-action="target">Simuler</button></div></div>
+          <div class="lab-control"><span>Rappel local</span><div><input id="labReminder" type="text" maxlength="120" placeholder="Ex. vérifier le matériel"><button data-lab-action="reminder">Créer</button></div></div>
+        </div>
+        <div class="lab-log-head"><b>Journal des simulations</b><button class="ghost" data-lab-action="clear">Effacer</button></div>
+        <div id="labLog" class="lab-log"></div>
+        <div id="labToast" class="lab-toast"></div>
+      </section>
+
       <section class="bottom-grid">
         <article class="card">
           <div class="card-title"><span>◎ Temps dans la cible</span><span id="tirPeriod" class="pill neutral">Période disponible</span></div>
@@ -89,9 +107,10 @@
         <article class="card"><div class="card-title"><span>⚠ Alertes système</span><span class="pill neutral">Règles déterministes</span></div><div id="systemAlerts" class="alert-list"></div></article>
       </section>
 
-      <footer>GlucyZen MVP v0.4 · Prototype en lecture seule · Ne remplace pas Loop, Dexcom ni les alertes du dispositif médical.</footer>
+      <footer>GlucyZen v0.6 LAB · Données réelles en lecture seule · Commandes simulées localement · Ne remplace pas Loop, Dexcom ni les alertes du dispositif médical.</footer>
     </main>
   </div>
 <script src="/app.js"></script>
+<script src="/lab.js"></script>
 </body>
 </html>
