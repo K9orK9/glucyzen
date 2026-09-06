@@ -46,7 +46,6 @@ Write-Host ''
 Write-Host '=== GlucyZen ===' -ForegroundColor Cyan
 Ensure-Node
 
-# Si une instance GlucyZen repond deja, ouvrir simplement le dashboard.
 try {
   $existing = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 1
   if ($existing.ok) {
@@ -62,11 +61,11 @@ $env:NIGHTSCOUT_URL = $cfg.nightscoutUrl
 $env:NIGHTSCOUT_TOKEN = $token
 $env:PORT = '8787'
 
-Write-Host 'Demarrage en LIVE read-only...' -ForegroundColor Green
-$nodeProcess = Start-Process -FilePath 'node' -ArgumentList 'server.js' -WorkingDirectory $Root -PassThru -WindowStyle Minimized
+Write-Host 'Demarrage en LIVE read-only + Historical Intelligence...' -ForegroundColor Green
+$nodeProcess = Start-Process -FilePath 'node' -ArgumentList 'server-v011.js' -WorkingDirectory $Root -PassThru -WindowStyle Minimized
 
 $ready = $false
-for ($i=0; $i -lt 30; $i++) {
+for ($i=0; $i -lt 40; $i++) {
   Start-Sleep -Milliseconds 350
   try {
     $health = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 1
@@ -75,7 +74,6 @@ for ($i=0; $i -lt 30; $i++) {
   if ($nodeProcess.HasExited) { break }
 }
 
-# Effacer la copie PowerShell du token des que le processus enfant l a heritee.
 $token = $null
 $env:NIGHTSCOUT_TOKEN = $null
 [GC]::Collect()
