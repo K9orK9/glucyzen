@@ -2,7 +2,7 @@
 
 Dashboard local **lecture seule** pour agréger les données Nightscout envoyées par Loop (Dexcom ONE+ + Omnipod DASH).
 
-## Nouveau : installation puis lancement en 1 clic
+## Lancement en 1 clic
 
 ### Premier lancement
 
@@ -31,19 +31,19 @@ Double-cliquer sur :
 
 `Configurer.cmd`
 
-## Mises à jour depuis GitHub
+## Mises à jour en 1 clic
 
-Le but de la v0.5 est de ne plus distribuer un nouveau ZIP à chaque version.
+Le dépôt officiel est :
 
-Une fois le dépôt GitHub publié, `Mettre-a-jour.cmd` télécharge directement la dernière branche `main`, remplace les fichiers applicatifs et **préserve intégralement le dossier `data/`**.
+`K9orK9/glucyzen`
 
-Au premier clic sur `Mettre-a-jour.cmd`, il demande une seule fois le dépôt GitHub (`owner/repo`). Ensuite, les mises à jour sont en 1 clic.
+Double-cliquer sur :
 
-## Publication initiale du dépôt
+`Mettre-a-jour.cmd`
 
-Après avoir créé un dépôt GitHub vide, `Publier-sur-GitHub.cmd` peut initialiser Git, installer Git automatiquement si nécessaire, publier le projet sur `main` et mémoriser le dépôt pour l'updater.
+Le script télécharge la dernière branche `main`, remplace les fichiers applicatifs et **préserve intégralement le dossier `data/`**. Il n'est plus nécessaire de télécharger un nouveau ZIP ni de ressaisir le token à chaque version.
 
-Le dossier `data/` est dans `.gitignore` : l'URL Nightscout et le token chiffré local ne sont donc jamais poussés dans le dépôt.
+Un fichier local `data/repo.json` peut éventuellement surcharger le dépôt/branche pour un fork ou des tests. Ce fichier reste local et n'est jamais poussé sur GitHub.
 
 ## Sécurité
 
@@ -53,6 +53,7 @@ Le dossier `data/` est dans `.gitignore` : l'URL Nightscout et le token chiffré
 - L'IA reste **conseil uniquement**.
 - Aucune route de bolus, suspension, profil, cible, override ou commande pompe n'existe dans GlucyZen.
 - En mode LIVE, aucune donnée de démonstration ne remplace silencieusement une panne Nightscout.
+- `data/` est ignoré par Git : aucune configuration Nightscout locale n'est publiée dans le dépôt.
 
 ## Endpoints
 
