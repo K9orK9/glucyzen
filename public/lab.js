@@ -1,4 +1,12 @@
 (() => {
+  const navStyle=document.createElement('style');
+  navStyle.textContent=`
+    .brand-button{border:0;background:transparent;padding:0;width:100%;text-align:left;cursor:pointer;color:inherit}.page-view{display:none}.page-view.active{display:block}.detail-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(280px,.8fr);gap:18px}.detail-grid.three{grid-template-columns:repeat(3,1fr)}.detail-hero{min-height:430px}.detail-hero #glucoseDetailChart,#historyChart{width:100%;height:260px;margin-top:18px}.stat-stack{display:flex;flex-direction:column}.stat-stack>div{display:flex;justify-content:space-between;gap:20px;padding:14px 0;border-bottom:1px solid var(--line);align-items:flex-start}.stat-stack>div:last-child{border-bottom:0}.stat-stack span{color:var(--muted);font-size:13px}.stat-stack b{text-align:right}.table-wrap{overflow:auto;margin-top:18px}.history-table{width:100%;border-collapse:collapse;font-size:13px}.history-table th,.history-table td{text-align:left;padding:12px;border-bottom:1px solid var(--line)}.history-table th{color:var(--muted);font-size:12px}.history-state{padding:5px 9px;border-radius:999px;font-weight:800;font-size:11px}.history-state.ok{background:var(--green-soft);color:#18895f}.history-state.high{background:#fff4df;color:#976100}.history-state.low{background:#ffeded;color:#a52d32}.report-score{font-size:58px;font-weight:900;letter-spacing:-2px;color:var(--green);margin:10px 0}.report-tir{margin-top:14px}.assistant-layout{grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr)}.safety-list{display:flex;flex-direction:column;gap:10px}.safety-list>div{padding:11px 12px;border-radius:12px;background:#eef8f5;color:#176e53;font-weight:700;font-size:13px}.settings-help p{color:var(--muted);font-size:13px;margin:10px 0 6px}.settings-help code{display:inline-block;padding:9px 11px;border-radius:9px;background:#f3f6fa;color:#34445e;font-weight:700}.lab-card.standalone{margin-top:0}.nav.active{background:#e8f2ff;color:#1e69d6;font-weight:700}
+    @media(max-width:1180px){.detail-grid,.detail-grid.three,.assistant-layout{grid-template-columns:1fr}}
+    @media(max-width:720px){.detail-grid,.detail-grid.three,.assistant-layout{grid-template-columns:1fr}.stat-stack>div{gap:10px}.report-score{font-size:46px}}
+  `;
+  document.head.appendChild(navStyle);
+
   const $ = (id) => document.getElementById(id);
   const STORE = 'glucyzen.lab.actions.v1';
   let latest = null;
